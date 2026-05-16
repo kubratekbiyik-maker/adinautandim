@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail, confirmPasswordReset, verifyPasswordResetCode } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { motion, AnimatePresence } from 'motion/react';
@@ -44,15 +44,31 @@ export default function AuthPage() {
   const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(true);
   const [isReset, setIsReset] = useState(false);
+  const [isConfirmReset, setIsConfirmReset] = useState(false);
+  const [oobCode, setOobCode] = useState<string | null>(null);
   const [message, setMessage] = useState('');
 
   useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const code = params.get('oobCode');
+    const mode = params.get('mode');
+
+    if (code && mode === 'resetPassword') {
+      setOobCode(code);
+      setIsConfirmReset(true);
+      // Verify code validity
+      verifyPasswordResetCode(auth, code).catch((err) => {
+        setError('Şifre sıfırlama bağlantısı geçersiz veya süresi dolmuş.');
+      });
+    }
+
     if (location.state && typeof location.state.isLogin === 'boolean') {
       setIsLogin(location.state.isLogin);
     }
   }, [location.state]);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [username, setUsername] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -63,6 +79,32 @@ export default function AuthPage() {
     setError('');
     setMessage('');
     
+    if (isConfirmReset && oobCode) {
+      if (password.length < 6) {
+        setError('Şifre en az 6 karakter olmalıdır.');
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError('Şifreler eşleşmiyor.');
+        return;
+      }
+      setLoading(true);
+      try {
+        await confirmPasswordReset(auth, oobCode, password);
+        setMessage('Şifreniz başarıyla güncellendi! Şimdi yeni şifrenizle giriş yapabilirsiniz.');
+        setIsConfirmReset(false);
+        setIsLogin(true);
+        // Clear code from URL
+        navigate('/auth', { replace: true });
+      } catch (err: any) {
+        console.error("Confirm reset error:", err);
+        setError(translateError(err.code));
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     if (isReset) {
       if (!email || !email.includes('@')) {
         setError('Lütfen geçerli bir e-posta adresi girin.');
@@ -180,7 +222,9 @@ export default function AuthPage() {
         <div className="space-y-12">
           <Logo size="lg" />
           <h1 className="text-4xl font-display font-black leading-none tracking-tighter">
-            {isReset ? (
+            {isConfirmReset ? (
+              <>YENİ BİR BAŞLANGIÇ... YENİ BİR ŞİFRE.</>
+            ) : isReset ? (
               <>BAZEN HAFIZA OYUN OYNAR. SIFIRLAYALIM.</>
             ) : isLogin ? (
               <>KİM BİLİR ELF GÖZLERİN YİNE NELER GÖRDÜ.</>
@@ -188,11 +232,13 @@ export default function AuthPage() {
           </h1>
         </div>
         <p className="text-sm font-bold uppercase tracking-widest leading-tight">
-          {isReset 
-            ? 'E-POSTA ADRESİNİ YAZ, ŞİFRE SIFIRLAMA BAĞLANTISINI GÖNDERELİM.'
-            : isLogin 
-              ? 'BAŞKASININ ADINA UTANDIĞIN ANLARI PAYLAŞMAYA DEVAM ET.' 
-              : 'BAŞKALARI ADINA UTANDIĞIN ANLARI ANLATMAYA BAŞLA.'}
+          {isConfirmReset 
+            ? 'GÜÇLÜ VE UNUTMAYACAĞIN BİR ŞİFRE SEÇ.'
+            : isReset 
+              ? 'E-POSTA ADRESİNİ YAZ, ŞİFRE SIFIRLAMA BAĞLANTISINI GÖNDERELİM.'
+              : isLogin 
+                ? 'BAŞKASININ ADINA UTANDIĞIN ANLARI PAYLAŞMAYA DEVAM ET.' 
+                : 'BAŞKALARI ADINA UTANDIĞIN ANLARI ANLATMAYA BAŞLA.'}
         </p>
       </div>
 
@@ -208,12 +254,14 @@ export default function AuthPage() {
               <div className="w-16 h-16 border-8 border-bauhaus-ink border-t-bauhaus-red rounded-full animate-spin shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]" />
               <div className="space-y-2">
                 <h3 className="font-display font-black text-xl tracking-tighter uppercase">
-                  {isReset ? 'SIFIRLANIYOR...' : 'BAĞLANILIYOR...'}
+                  {isConfirmReset ? 'GÜNCELLENİYOR...' : isReset ? 'SIFIRLANIYOR...' : 'BAĞLANILIYOR...'}
                 </h3>
                 <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-500">
-                  {isReset 
-                    ? 'HAFIZANI TAZELEMEK İÇİN GEREKLİ AYARLAR YAPILIYOR.' 
-                    : 'LÜTFEN BEKLEYİN, UTANÇ DÜNYASINA GİRİŞ YAPILIYOR.'}
+                  {isConfirmReset 
+                    ? 'YENİ ŞİFRENİZ SİSTEME İŞLENİYOR.'
+                    : isReset 
+                      ? 'HAFIZANI TAZELEMEK İÇİN GEREKLİ AYARLAR YAPILIYOR.' 
+                      : 'LÜTFEN BEKLEYİN, UTANÇ DÜNYASINA GİRİŞ YAPILIYOR.'}
                 </p>
               </div>
             </motion.div>
@@ -221,12 +269,14 @@ export default function AuthPage() {
         </AnimatePresence>
 
         <form onSubmit={handleSubmit} className="space-y-8">
-          {isReset && (
+          {(isReset || isConfirmReset) && (
             <button
               type="button"
               onClick={() => {
                 setIsReset(false);
+                setIsConfirmReset(false);
                 setIsLogin(true);
+                navigate('/auth', { replace: true });
               }}
               className="flex items-center gap-2 text-xs font-black uppercase tracking-widest hover:text-bauhaus-red transition-colors"
             >
@@ -234,7 +284,7 @@ export default function AuthPage() {
             </button>
           )}
 
-          {!isLogin && !isReset && (
+          {!isLogin && !isReset && !isConfirmReset && (
             <div className="space-y-2">
               <label className="text-xs font-black uppercase tracking-widest">KULLANICI ADI</label>
               <input
@@ -247,21 +297,25 @@ export default function AuthPage() {
             </div>
           )}
 
-          <div className="space-y-2">
-            <label className="text-xs font-black uppercase tracking-widest">E-POSTA</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-3 bg-bauhaus-bg border-4 border-bauhaus-ink focus:bg-white focus:outline-none transition-colors font-bold text-lg"
-            />
-          </div>
+          {!isConfirmReset && (
+            <div className="space-y-2">
+              <label className="text-xs font-black uppercase tracking-widest">E-POSTA</label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-3 bg-bauhaus-bg border-4 border-bauhaus-ink focus:bg-white focus:outline-none transition-colors font-bold text-lg"
+              />
+            </div>
+          )}
 
           {!isReset && (
             <div className="space-y-2">
               <div className="flex justify-between items-center">
-                <label className="text-xs font-black uppercase tracking-widest">ŞİFRE</label>
+                <label className="text-xs font-black uppercase tracking-widest">
+                  {isConfirmReset ? 'YENİ ŞİFRE' : 'ŞİFRE'}
+                </label>
                 {isLogin && (
                   <button
                     type="button"
@@ -293,6 +347,20 @@ export default function AuthPage() {
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
+            </div>
+          )}
+
+          {isConfirmReset && (
+            <div className="space-y-2">
+              <label className="text-xs font-black uppercase tracking-widest">ŞİFRE TEKRAR</label>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                required
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="w-full px-4 py-3 bg-bauhaus-bg border-4 border-bauhaus-ink focus:bg-white focus:outline-none transition-colors font-bold text-lg"
+                placeholder="••••••••"
+              />
             </div>
           )}
 
@@ -333,12 +401,12 @@ export default function AuthPage() {
               disabled={loading}
               className="bauhaus-button w-full py-4 text-lg"
             >
-              {loading ? 'İŞLENİYOR...' : isReset ? 'SIFIRLAMA BAĞLANTISI GÖNDER' : (isLogin ? 'GİRİŞ YAP' : 'KAYIT OL')}
+              {loading ? 'İŞLENİYOR...' : isConfirmReset ? 'ŞİFREYİ GÜNCELLE' : isReset ? 'SIFIRLAMA BAĞLANTISI GÖNDER' : (isLogin ? 'GİRİŞ YAP' : 'KAYIT OL')}
             </button>
           </div>
         </form>
 
-        {!isReset && (
+        {!isReset && !isConfirmReset && (
           <div className="pt-6 border-t-4 border-bauhaus-bg text-center">
             <button
               onClick={() => setIsLogin(!isLogin)}
