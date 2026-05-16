@@ -1,9 +1,9 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc, onSnapshot, collection, query, where, orderBy } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import { LogIn, LogOut, PlusCircle, Shield, Home as HomeIcon, User as UserIcon, Instagram, Copyright } from 'lucide-react';
+import { LogIn, LogOut, PlusCircle, Shield, Home as HomeIcon, User, ChevronDown, Instagram, Copyright } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 // --- Components ---
@@ -72,6 +72,7 @@ interface AuthContextType {
   loading: boolean;
   profileLoading: boolean;
   isAdmin: boolean;
+  pendingCount: number;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -80,6 +81,7 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   profileLoading: false,
   isAdmin: false,
+  pendingCount: 0,
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -96,23 +98,40 @@ import BlogPostDetailPage from './components/BlogPostDetailPage';
 import TermsPage from './components/TermsPage';
 import PrivacyPage from './components/PrivacyPage';
 import CommunityRulesPage from './components/CommunityRulesPage';
+import ProfilePage from './components/ProfilePage';
 import ErrorBoundary from './components/ErrorBoundary';
 
 const Navbar = () => {
-  const { user, profile, isAdmin, profileLoading } = useAuth();
+  const { user, profile, isAdmin, profileLoading, pendingCount } = useAuth();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close menu on route change
+  // Close menus on route change
   useEffect(() => {
     setMobileMenuOpen(false);
+    setProfileMenuOpen(false);
   }, [location.pathname]);
+
+  // Click outside to close profile menu
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setProfileMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const navLinks = [
     { path: '/', label: 'ANASAYFA', color: 'hover:bg-bauhaus-yellow' },
     { path: '/manifesto', label: 'MANİFESTO', color: 'hover:bg-bauhaus-blue hover:text-white' },
     { path: '/blog', label: 'BLOG', color: 'hover:bg-bauhaus-yellow' },
   ];
+
+  const displayName = profile?.username || user?.displayName || 'KULLANICI';
 
   return (
     <nav className="bg-bauhaus-bg sticky top-0 z-50 border-b-4 border-bauhaus-ink">
@@ -121,7 +140,7 @@ const Navbar = () => {
           <Logo />
         </Link>
         
-        <div className="hidden md:flex items-center gap-8">
+        <div className="hidden md:flex items-center gap-6">
           {navLinks.map((link) => (
             (link.path !== '/' || location.pathname !== '/') && (
               <Link 
@@ -135,28 +154,67 @@ const Navbar = () => {
           ))}
           
           {user ? (
-            <>
-              <Link to="/new" className="text-xs font-bold uppercase tracking-widest hover:bg-bauhaus-red hover:text-white px-3 py-1 transition-colors">
+            <div className="flex items-center gap-4">
+              <Link to="/new" className="text-xs font-bold uppercase tracking-widest bg-bauhaus-red text-white px-4 py-2 hover:bg-bauhaus-ink transition-colors shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none">
                 PAYLAŞ
               </Link>
-              
+
               {profileLoading && user?.email !== 'kubratekbiyik@gmail.com' ? (
                 <div className="w-4 h-4 border-2 border-bauhaus-ink border-t-bauhaus-red animate-spin" />
               ) : isAdmin && (
-                <Link to="/admin" className="text-xs font-bold uppercase tracking-widest bg-bauhaus-ink text-white px-3 py-1 hover:bg-bauhaus-red transition-colors">
+                <Link to="/admin" className="text-xs font-bold uppercase tracking-widest bg-bauhaus-ink text-white px-3 py-1 hover:bg-bauhaus-red transition-colors relative group">
                   PANEL
+                  {pendingCount > 0 && (
+                    <span className="absolute -top-2 -right-2 w-5 h-5 bg-bauhaus-red border-2 border-bauhaus-ink rounded-full flex items-center justify-center text-[10px] font-black shadow-[2px_2px_0px_0px_rgba(20,20,20,1)] group-hover:bg-bauhaus-yellow group-hover:text-bauhaus-ink transition-colors">
+                      {pendingCount > 9 ? '9+' : pendingCount}
+                    </span>
+                  )}
                 </Link>
               )}
-              
-              <button 
-                onClick={() => auth.signOut()}
-                className="text-xs font-bold uppercase tracking-widest hover:bg-bauhaus-ink hover:text-white px-3 py-1 transition-colors"
-              >
-                ÇIKIŞ
-              </button>
-            </>
+
+              <div className="relative" ref={dropdownRef}>
+                <button 
+                  onClick={() => setProfileMenuOpen(!profileMenuOpen)}
+                  className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest bg-white border-2 border-bauhaus-ink px-3 py-2 hover:bg-bauhaus-yellow transition-colors"
+                >
+                  <User size={14} />
+                  <span>{displayName}</span>
+                  <ChevronDown size={14} className={`transition-transform ${profileMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                <AnimatePresence>
+                  {profileMenuOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 4, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      className="absolute right-0 top-full mt-2 w-48 bg-white border-4 border-bauhaus-ink shadow-[8px_8px_0px_0px_rgba(20,20,20,1)] z-50 overflow-hidden"
+                    >
+                      <Link 
+                        to="/profile" 
+                        className="flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase tracking-widest hover:bg-bauhaus-yellow border-b-2 border-bauhaus-ink transition-colors"
+                        onClick={() => setProfileMenuOpen(false)}
+                      >
+                        <User size={14} />
+                        PROFİLİM
+                      </Link>
+                      <button 
+                        onClick={() => {
+                          auth.signOut();
+                          setProfileMenuOpen(false);
+                        }}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold uppercase tracking-widest hover:bg-bauhaus-red hover:text-white transition-colors"
+                      >
+                        <LogOut size={14} />
+                        ÇIKIŞ YAP
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
           ) : (
-            <Link to="/auth" className="bauhaus-button py-2 px-4">
+            <Link to="/auth" className="bauhaus-button py-2 px-4 text-xs font-black uppercase tracking-widest">
               GİRİŞ YAP
             </Link>
           )}
@@ -199,14 +257,22 @@ const Navbar = () => {
 
             {user ? (
               <>
+                <Link to="/profile" className="text-2xl font-display font-black tracking-tighter uppercase hover:text-bauhaus-red transition-colors">
+                  PROFİLİM
+                </Link>
                 <Link to="/new" className="text-2xl font-display font-black tracking-tighter uppercase hover:text-bauhaus-red transition-colors">
                   PAYLAŞ
                 </Link>
                 {profileLoading && user?.email !== 'kubratekbiyik@gmail.com' ? (
                   <div className="w-6 h-6 border-4 border-bauhaus-ink border-t-bauhaus-red animate-spin" />
                 ) : isAdmin && (
-                  <Link to="/admin" className="text-2xl font-display font-black tracking-tighter uppercase hover:text-bauhaus-red transition-colors">
+                  <Link to="/admin" className="text-2xl font-display font-black tracking-tighter uppercase hover:text-bauhaus-red transition-colors flex items-center gap-3">
                     PANEL
+                    {pendingCount > 0 && (
+                      <span className="w-8 h-8 bg-bauhaus-red border-4 border-bauhaus-ink rounded-full flex items-center justify-center text-sm font-black shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+                        {pendingCount}
+                      </span>
+                    )}
                   </Link>
                 )}
                 <button 
@@ -266,6 +332,9 @@ const Footer = () => {
             <li><Link to="/blog" className="hover:text-bauhaus-yellow transition-colors">Blog</Link></li>
             <li><Link to="/new" className="hover:text-bauhaus-yellow transition-colors">Paylaş</Link></li>
             <li><Link to="/rules" className="hover:text-bauhaus-red transition-colors">Topluluk Kuralları</Link></li>
+            {user && (
+              <li><Link to="/profile" className="hover:text-bauhaus-yellow transition-colors">Profilim</Link></li>
+            )}
             <li><Link to="/terms" className="hover:text-bauhaus-blue transition-colors">Kullanım Koşulları</Link></li>
             <li><Link to="/privacy" className="hover:text-bauhaus-yellow transition-colors">Gizlilik Politikası</Link></li>
             {user && (
@@ -315,14 +384,40 @@ const ProtectedRoute = ({ children, adminOnly = false }: { children: React.React
   return <>{children}</>;
 };
 
+const AnimatedRoutes = () => {
+  const location = useLocation();
+  const { user } = useAuth();
+
+  return (
+    <AnimatePresence mode="wait">
+      <Routes location={location}>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/manifesto" element={<ManifestoPage />} />
+        <Route path="/blog" element={<BlogPage />} />
+        <Route path="/blog/:id" element={<BlogPostDetailPage />} />
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/rules" element={<CommunityRulesPage />} />
+        <Route path="/auth" element={!user ? <AuthPage /> : <Navigate to="/" />} />
+        <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+        <Route path="/new" element={<ProtectedRoute><NewEntryPage /></ProtectedRoute>} />
+        <Route path="/feedback" element={<ProtectedRoute><FeedbackPage /></ProtectedRoute>} />
+        <Route path="/admin" element={<ProtectedRoute adminOnly><AdminPage /></ProtectedRoute>} />
+      </Routes>
+    </AnimatePresence>
+  );
+};
+
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
+    let unsubscribePending: (() => void) | null = null;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
@@ -333,13 +428,29 @@ export default function App() {
         unsubscribeProfile = null;
       }
 
+      if (unsubscribePending) {
+        unsubscribePending();
+        unsubscribePending = null;
+      }
+
       if (firebaseUser) {
         setProfileLoading(true);
         unsubscribeProfile = onSnapshot(doc(db, 'users', firebaseUser.uid), (doc) => {
           if (doc.exists()) {
-            setProfile(doc.data() as UserProfile);
+            const data = doc.data() as UserProfile;
+            setProfile(data);
+
+            // Set up pending count listener if user is admin
+            const isHardcoded = firebaseUser.email === 'kubratekbiyik@gmail.com';
+            if ((isHardcoded || data.role === 'admin') && !unsubscribePending) {
+              const q = query(collection(db, 'entries'), where('status', '==', 'pending'));
+              unsubscribePending = onSnapshot(q, (snapshot) => {
+                setPendingCount(snapshot.size);
+              });
+            }
           } else {
             setProfile(null);
+            setPendingCount(0);
           }
           setProfileLoading(false);
         }, (error) => {
@@ -349,12 +460,14 @@ export default function App() {
       } else {
         setProfile(null);
         setProfileLoading(false);
+        setPendingCount(0);
       }
     });
 
     return () => {
       unsubscribeAuth();
       if (unsubscribeProfile) unsubscribeProfile();
+      if (unsubscribePending) unsubscribePending();
     };
   }, []);
 
@@ -376,7 +489,7 @@ export default function App() {
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, profileLoading, isAdmin }}>
+    <AuthContext.Provider value={{ user, profile, loading, profileLoading, isAdmin, pendingCount }}>
       <ErrorBoundary>
         <Router>
           <ScrollToTop />
@@ -389,21 +502,7 @@ export default function App() {
             <div className="relative z-10">
               <Navbar />
               <main className="max-w-6xl mx-auto px-6 py-20">
-                <AnimatePresence mode="wait">
-                  <Routes>
-                    <Route path="/" element={<HomePage />} />
-                    <Route path="/manifesto" element={<ManifestoPage />} />
-                    <Route path="/blog" element={<BlogPage />} />
-                    <Route path="/blog/:id" element={<BlogPostDetailPage />} />
-                    <Route path="/terms" element={<TermsPage />} />
-                    <Route path="/privacy" element={<PrivacyPage />} />
-                    <Route path="/rules" element={<CommunityRulesPage />} />
-                    <Route path="/auth" element={!user ? <AuthPage /> : <Navigate to="/" />} />
-                    <Route path="/new" element={<ProtectedRoute><NewEntryPage /></ProtectedRoute>} />
-                    <Route path="/feedback" element={<ProtectedRoute><FeedbackPage /></ProtectedRoute>} />
-                    <Route path="/admin" element={<ProtectedRoute adminOnly><AdminPage /></ProtectedRoute>} />
-                  </Routes>
-                </AnimatePresence>
+                <AnimatedRoutes />
               </main>
               <Footer />
             </div>
