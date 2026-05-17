@@ -211,11 +211,6 @@ export default function HomePage() {
                         </span>
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <div className="w-4 h-4 bg-bauhaus-red rounded-full" />
-                      <div className="w-4 h-4 bg-bauhaus-yellow rounded-full" />
-                      <div className="w-4 h-4 bg-bauhaus-blue rounded-full" />
-                    </div>
                   </div>
                   
                   <div className="space-y-6">
